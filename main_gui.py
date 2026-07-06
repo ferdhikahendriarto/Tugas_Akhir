@@ -27,100 +27,417 @@ class SkripsiGUI(tk.Tk):
         self.notebook = ttk.Notebook(self)
         self.notebook.pack(expand=True, fill='both', padx=10, pady=10)
 
-        self.tab_kripto     = ttk.Frame(self.notebook)
-        self.tab_stego      = ttk.Frame(self.notebook)
+        self.tab_enc_embed    = ttk.Frame(self.notebook)
+        self.tab_ext_dec      = ttk.Frame(self.notebook)
         self.tab_perbandingan = ttk.Frame(self.notebook)
         self.tab_batch        = ttk.Frame(self.notebook)
 
-        self.notebook.add(self.tab_kripto,       text="Kriptografi")
-        self.notebook.add(self.tab_stego,        text="Steganografi")
+        self.notebook.add(self.tab_enc_embed,    text="Enkripsi & Penyisipan")
+        self.notebook.add(self.tab_ext_dec,      text="Ekstraksi & Dekripsi")
         self.notebook.add(self.tab_perbandingan, text="Perbandingan RGB vs YCbCr")
         self.notebook.add(self.tab_batch,        text="Pengujian CER")
 
-        self.setup_kripto_tab()
-        self.setup_stego_tab()
+        self.setup_enc_embed_tab()
+        self.setup_ext_dec_tab()
         self.setup_perbandingan_tab()
         self.setup_batch_tab()
 
-    # ==================== TAB KRIPTOGRAFI ====================
-    def setup_kripto_tab(self):
-        frame_input = ttk.LabelFrame(self.tab_kripto, text="Input Teks (Plaintext / Ciphertext)")
-        frame_input.pack(fill="x", padx=10, pady=10)
+    # ==================== TAB ENKRIPSI & PENYISIPAN ====================
+    def setup_enc_embed_tab(self):
+        # --- Scrollable wrapper ---
+        enc_canvas = tk.Canvas(self.tab_enc_embed, highlightthickness=0)
+        enc_scrollbar = ttk.Scrollbar(self.tab_enc_embed, orient="vertical", command=enc_canvas.yview)
+        enc_inner = ttk.Frame(enc_canvas)
 
-        self.btn_browse_file = ttk.Button(frame_input, text="Pilih File (.txt, .docx, .pdf)", command=self.load_text_file)
-        self.btn_browse_file.pack(pady=5)
+        enc_inner.bind(
+            "<Configure>",
+            lambda e: enc_canvas.configure(scrollregion=enc_canvas.bbox("all"))
+        )
+        self._enc_canvas_window = enc_canvas.create_window((0, 0), window=enc_inner, anchor="nw")
+        enc_canvas.configure(yscrollcommand=enc_scrollbar.set)
 
-        self.text_area = tk.Text(frame_input, height=12, wrap="word")
-        self.text_area.pack(fill="x", padx=10, pady=5)
+        enc_scrollbar.pack(side="right", fill="y")
+        enc_canvas.pack(side="left", fill="both", expand=True)
 
-        frame_key = ttk.Frame(self.tab_kripto)
+        self._enc_canvas = enc_canvas
+
+        def _on_mousewheel(event):
+            enc_canvas.yview_scroll(int(-1*(event.delta/120)), "units")
+
+        enc_canvas.bind_all("<MouseWheel>", _on_mousewheel)
+
+        def _on_canvas_configure(event):
+            enc_canvas.itemconfig(self._enc_canvas_window, width=event.width)
+
+        enc_canvas.bind("<Configure>", _on_canvas_configure)
+
+        # ===== BAGIAN 1: ENKRIPSI (AES) =====
+        frame_enc = ttk.LabelFrame(enc_inner, text="1. Enkripsi (AES)")
+        frame_enc.pack(fill="x", padx=10, pady=5)
+
+        # Input Teks (Plaintext)
+        frame_input = ttk.LabelFrame(frame_enc, text="Input Teks (Plaintext)")
+        frame_input.pack(fill="x", padx=10, pady=5)
+
+        self.enc_btn_browse = ttk.Button(frame_input, text="Pilih File (.txt, .docx, .pdf)", command=self.enc_load_text_file)
+        self.enc_btn_browse.pack(pady=5)
+
+        self.enc_text_area = tk.Text(frame_input, height=8, wrap="word")
+        self.enc_text_area.pack(fill="x", padx=10, pady=5)
+
+        # Passphrase
+        frame_key = ttk.Frame(frame_enc)
         frame_key.pack(fill="x", padx=10, pady=5)
-
         ttk.Label(frame_key, text="Passphrase (16 Karakter):").pack(side="left")
-        self.entry_key = ttk.Entry(frame_key, width=30)
-        self.entry_key.pack(side="left", padx=10)
+        self.enc_entry_key = ttk.Entry(frame_key, width=30)
+        self.enc_entry_key.pack(side="left", padx=10)
 
-        frame_action = ttk.Frame(self.tab_kripto)
-        frame_action.pack(pady=20)
+        # Tombol Enkripsi
+        frame_btn_enc = ttk.Frame(frame_enc)
+        frame_btn_enc.pack(pady=8)
+        self.btn_enkripsi = ttk.Button(frame_btn_enc, text="Enkripsi (AES)", command=self.proses_enkripsi)
+        self.btn_enkripsi.pack()
 
-        self.btn_enkripsi = ttk.Button(frame_action, text="Enkripsi (AES)", command=self.proses_enkripsi)
-        self.btn_enkripsi.pack(side="left", padx=10)
+        # Evaluasi Waktu Enkripsi
+        frame_waktu = ttk.LabelFrame(frame_enc, text="Evaluasi Kinerja Waktu")
+        frame_waktu.pack(fill="x", padx=10, pady=5)
 
-        self.btn_dekripsi = ttk.Button(frame_action, text="Dekripsi (AES)", command=self.proses_dekripsi)
-        self.btn_dekripsi.pack(side="left", padx=10)
-
-        # --- Frame Evaluasi Waktu Kriptografi ---
-        frame_waktu = ttk.LabelFrame(self.tab_kripto, text="Evaluasi Kinerja Waktu")
-        frame_waktu.pack(fill="x", padx=10, pady=10)
-
-        # Baris waktu enkripsi
         frame_waktu_enc = ttk.Frame(frame_waktu)
         frame_waktu_enc.pack(fill="x", padx=10, pady=3)
         ttk.Label(frame_waktu_enc, text="Waktu Enkripsi  :", width=20, anchor="w").pack(side="left")
-        self.lbl_waktu_enkripsi = ttk.Label(
+        self.enc_lbl_waktu = ttk.Label(
             frame_waktu_enc, text="-", foreground="blue", font=("Arial", 10, "bold")
         )
-        self.lbl_waktu_enkripsi.pack(side="left", padx=5)
+        self.enc_lbl_waktu.pack(side="left", padx=5)
 
-        # Baris waktu dekripsi
-        frame_waktu_dec = ttk.Frame(frame_waktu)
-        frame_waktu_dec.pack(fill="x", padx=10, pady=3)
-        ttk.Label(frame_waktu_dec, text="Waktu Dekripsi  :", width=20, anchor="w").pack(side="left")
-        self.lbl_waktu_dekripsi = ttk.Label(
-            frame_waktu_dec, text="-", foreground="blue", font=("Arial", 10, "bold")
-        )
-        self.lbl_waktu_dekripsi.pack(side="left", padx=5)
-
-        # Baris ukuran data
         frame_ukuran = ttk.Frame(frame_waktu)
         frame_ukuran.pack(fill="x", padx=10, pady=3)
         ttk.Label(frame_ukuran, text="Ukuran Data     :", width=20, anchor="w").pack(side="left")
-        self.lbl_ukuran_data = ttk.Label(
+        self.enc_lbl_ukuran = ttk.Label(
             frame_ukuran, text="-", foreground="purple", font=("Arial", 10)
         )
-        self.lbl_ukuran_data.pack(side="left", padx=5)
+        self.enc_lbl_ukuran.pack(side="left", padx=5)
 
-        # --- Frame Tabel Payload Steganografi ---
-        frame_payload_tbl = ttk.LabelFrame(self.tab_kripto, text="Payload Steganografi")
-        frame_payload_tbl.pack(fill="x", padx=10, pady=10)
+        # Tabel Payload Steganografi
+        frame_payload_tbl = ttk.LabelFrame(frame_enc, text="Payload Steganografi")
+        frame_payload_tbl.pack(fill="x", padx=10, pady=5)
 
         columns = ("jml_karakter", "ukuran_plain", "blok_aes", "ukuran_cipher", "total_payload")
-        self.tbl_payload = ttk.Treeview(
+        self.enc_tbl_payload = ttk.Treeview(
             frame_payload_tbl, columns=columns, show="headings", height=1
         )
 
-        self.tbl_payload.heading("jml_karakter",  text="Jumlah Karakter")
-        self.tbl_payload.heading("ukuran_plain",  text="Ukuran Plaintext (byte)")
-        self.tbl_payload.heading("blok_aes",      text="Blok AES (blok)")
-        self.tbl_payload.heading("ukuran_cipher", text="Ukuran Ciphertext (byte)")
-        self.tbl_payload.heading("total_payload", text="Total Payload (byte)")
+        self.enc_tbl_payload.heading("jml_karakter",  text="Jumlah Karakter")
+        self.enc_tbl_payload.heading("ukuran_plain",  text="Ukuran Plaintext (byte)")
+        self.enc_tbl_payload.heading("blok_aes",      text="Blok AES (blok)")
+        self.enc_tbl_payload.heading("ukuran_cipher", text="Ukuran Ciphertext (byte)")
+        self.enc_tbl_payload.heading("total_payload", text="Total Payload (byte)")
 
         for col in columns:
-            self.tbl_payload.column(col, anchor="center", width=150)
+            self.enc_tbl_payload.column(col, anchor="center", width=150)
 
-        self.tbl_payload.pack(fill="x", padx=10, pady=5)
+        self.enc_tbl_payload.pack(fill="x", padx=10, pady=5)
 
-    def load_text_file(self):
+        # Hasil Ciphertext
+        frame_cipher = ttk.LabelFrame(frame_enc, text="Hasil Ciphertext (Hex)")
+        frame_cipher.pack(fill="x", padx=10, pady=5)
+
+        self.enc_cipher_area = tk.Text(frame_cipher, height=4, wrap="word")
+        self.enc_cipher_area.pack(fill="x", padx=10, pady=5)
+
+        # ===== BAGIAN 2: PENYISIPAN (DCT Steganografi) =====
+        frame_stego = ttk.LabelFrame(enc_inner, text="2. Penyisipan (DCT Steganografi)")
+        frame_stego.pack(fill="x", padx=10, pady=5)
+
+        # Konfigurasi Steganografi (Pilih Gambar & Ruang Warna)
+        frame_config = ttk.LabelFrame(frame_stego, text="Konfigurasi Steganografi")
+        frame_config.pack(fill="x", padx=10, pady=5)
+
+        # Sub-frame Kiri: Pilih Gambar
+        frame_left = ttk.Frame(frame_config)
+        frame_left.pack(side="left", fill="both", expand=True, padx=5, pady=5)
+
+        self.enc_lbl_image_path = ttk.Label(frame_left, text="Belum ada gambar yang dipilih", wraplength=400)
+        self.enc_lbl_image_path.pack(anchor="w", pady=2)
+
+        self.enc_btn_browse_img = ttk.Button(
+            frame_left, text="Pilih Gambar Cover (PNG)", command=self.enc_load_cover_image
+        )
+        self.enc_btn_browse_img.pack(anchor="w", pady=2)
+
+        # Sub-frame Kanan: Pilihan Ruang Warna
+        frame_right = ttk.Frame(frame_config)
+        frame_right.pack(side="right", padx=15, pady=5)
+
+        ttk.Label(frame_right, text="Pilihan Ruang Warna:").pack(anchor="w", pady=2)
+        self.enc_colorspace_var = tk.StringVar(value="RGB")
+        rb_rgb = ttk.Radiobutton(frame_right, text="RGB (Langsung)", variable=self.enc_colorspace_var, value="RGB")
+        rb_rgb.pack(anchor="w", pady=1)
+        rb_ycbcr = ttk.Radiobutton(frame_right, text="YCbCr (Konversi)", variable=self.enc_colorspace_var, value="YCbCr")
+        rb_ycbcr.pack(anchor="w", pady=1)
+
+        # Tombol Sisipkan
+        frame_btn_sisip = ttk.Frame(frame_stego)
+        frame_btn_sisip.pack(pady=8)
+
+        self.btn_sisipkan = ttk.Button(
+            frame_btn_sisip, text="Sisipkan ke Gambar (DCT)", command=self.proses_sisipkan
+        )
+        self.btn_sisipkan.pack()
+
+        # Preview Gambar
+        frame_preview = ttk.Frame(frame_stego)
+        frame_preview.pack(fill="x", padx=10, pady=5)
+
+        self.enc_lbl_img_input = ttk.Label(
+            frame_preview, text="Gambar Input", anchor="center",
+            borderwidth=2, relief="groove", width=45
+        )
+        self.enc_lbl_img_input.pack(side="left", padx=5, fill="both", expand=True)
+
+        self.enc_lbl_img_output = ttk.Label(
+            frame_preview, text="Gambar Output (Stego)", anchor="center",
+            borderwidth=2, relief="groove", width=45
+        )
+        self.enc_lbl_img_output.pack(side="right", padx=5, fill="both", expand=True)
+
+        # Informasi Payload Steganografi
+        frame_payload = ttk.LabelFrame(
+            frame_stego, text="Informasi Payload Steganografi"
+        )
+        frame_payload.pack(fill="x", padx=10, pady=5)
+
+        # Baris ukuran pesan
+        frame_msg_size = ttk.Frame(frame_payload)
+        frame_msg_size.pack(fill="x", padx=10, pady=3)
+        ttk.Label(frame_msg_size, text="Ukuran Pesan    :", width=20, anchor="w").pack(side="left")
+        self.enc_lbl_payload_msg = ttk.Label(
+            frame_msg_size, text="-", foreground="blue", font=("Arial", 10, "bold")
+        )
+        self.enc_lbl_payload_msg.pack(side="left", padx=5)
+
+        # Baris kapasitas gambar
+        frame_cap = ttk.Frame(frame_payload)
+        frame_cap.pack(fill="x", padx=10, pady=3)
+        ttk.Label(frame_cap, text="Kapasitas Gambar :", width=20, anchor="w").pack(side="left")
+        self.enc_lbl_payload_cap = ttk.Label(
+            frame_cap, text="-", foreground="green", font=("Arial", 10, "bold")
+        )
+        self.enc_lbl_payload_cap.pack(side="left", padx=5)
+
+        # Baris utilisasi
+        frame_util = ttk.Frame(frame_payload)
+        frame_util.pack(fill="x", padx=10, pady=3)
+        ttk.Label(frame_util, text="Utilisasi Payload :", width=20, anchor="w").pack(side="left")
+        self.enc_lbl_payload_util = ttk.Label(
+            frame_util, text="-", foreground="purple", font=("Arial", 10, "bold")
+        )
+        self.enc_lbl_payload_util.pack(side="left", padx=5)
+        ttk.Label(
+            frame_util,
+            text="(Persentase kapasitas yang digunakan)",
+            foreground="gray"
+        ).pack(side="left", padx=10)
+
+        # Baris waktu sisip
+        frame_waktu_sisip = ttk.Frame(frame_payload)
+        frame_waktu_sisip.pack(fill="x", padx=10, pady=3)
+        ttk.Label(frame_waktu_sisip, text="Waktu Penyisipan :", width=20, anchor="w").pack(side="left")
+        self.enc_lbl_waktu_sisip = ttk.Label(
+            frame_waktu_sisip, text="-", foreground="#D35400", font=("Arial", 10, "bold")
+        )
+        self.enc_lbl_waktu_sisip.pack(side="left", padx=5)
+
+        # --- Frame Hasil MSE & PSNR ---
+        frame_metrics = ttk.LabelFrame(
+            frame_stego, text="Hasil Pengukuran Kualitas Gambar (MSE & PSNR)"
+        )
+        frame_metrics.pack(fill="x", padx=10, pady=5)
+
+        # Baris label MSE
+        frame_mse_row = ttk.Frame(frame_metrics)
+        frame_mse_row.pack(fill="x", padx=10, pady=3)
+        ttk.Label(frame_mse_row, text="MSE  :", width=10, anchor="w").pack(side="left")
+        self.enc_lbl_mse = ttk.Label(
+            frame_mse_row, text="-", foreground="blue", font=("Arial", 10, "bold")
+        )
+        self.enc_lbl_mse.pack(side="left", padx=5)
+        ttk.Label(
+            frame_mse_row,
+            text="(Semakin kecil semakin baik. Ideal: mendekati 0)",
+            foreground="gray"
+        ).pack(side="left", padx=10)
+
+        # Baris label PSNR
+        frame_psnr_row = ttk.Frame(frame_metrics)
+        frame_psnr_row.pack(fill="x", padx=10, pady=3)
+        ttk.Label(frame_psnr_row, text="PSNR :", width=10, anchor="w").pack(side="left")
+        self.enc_lbl_psnr = ttk.Label(
+            frame_psnr_row, text="-", foreground="green", font=("Arial", 10, "bold")
+        )
+        self.enc_lbl_psnr.pack(side="left", padx=5)
+        ttk.Label(
+            frame_psnr_row,
+            text="(Semakin tinggi semakin baik. Ideal: > 40 dB)",
+            foreground="gray"
+        ).pack(side="left", padx=10)
+
+        # Baris label per-channel
+        frame_channel_row = ttk.Frame(frame_metrics)
+        frame_channel_row.pack(fill="x", padx=10, pady=3)
+        ttk.Label(frame_channel_row, text="Per-Channel:", width=12, anchor="w").pack(side="left")
+        self.enc_lbl_channel = ttk.Label(frame_channel_row, text="-", foreground="purple")
+        self.enc_lbl_channel.pack(side="left", padx=5)
+
+        # Inisialisasi
+        self.enc_image_path = None
+        self.enc_ciphertext_hex = None
+
+    # ==================== TAB EKSTRAKSI & DEKRIPSI ====================
+    def setup_ext_dec_tab(self):
+        # --- Scrollable wrapper ---
+        ext_canvas = tk.Canvas(self.tab_ext_dec, highlightthickness=0)
+        ext_scrollbar = ttk.Scrollbar(self.tab_ext_dec, orient="vertical", command=ext_canvas.yview)
+        ext_inner = ttk.Frame(ext_canvas)
+
+        ext_inner.bind(
+            "<Configure>",
+            lambda e: ext_canvas.configure(scrollregion=ext_canvas.bbox("all"))
+        )
+        self._ext_canvas_window = ext_canvas.create_window((0, 0), window=ext_inner, anchor="nw")
+        ext_canvas.configure(yscrollcommand=ext_scrollbar.set)
+
+        ext_scrollbar.pack(side="right", fill="y")
+        ext_canvas.pack(side="left", fill="both", expand=True)
+
+        self._ext_canvas = ext_canvas
+
+        def _on_mousewheel(event):
+            ext_canvas.yview_scroll(int(-1*(event.delta/120)), "units")
+
+        ext_canvas.bind_all("<MouseWheel>", _on_mousewheel)
+
+        def _on_canvas_configure(event):
+            ext_canvas.itemconfig(self._ext_canvas_window, width=event.width)
+
+        ext_canvas.bind("<Configure>", _on_canvas_configure)
+
+        # ===== BAGIAN 1: EKSTRAKSI (DCT Steganografi) =====
+        frame_ext = ttk.LabelFrame(ext_inner, text="1. Ekstraksi (DCT Steganografi)")
+        frame_ext.pack(fill="x", padx=10, pady=5)
+
+        # Pilih Gambar Stego
+        frame_img = ttk.LabelFrame(frame_ext, text="Konfigurasi Steganografi")
+        frame_img.pack(fill="x", padx=10, pady=5)
+
+        # Sub-frame Kiri: Pilih Gambar
+        frame_left = ttk.Frame(frame_img)
+        frame_left.pack(side="left", fill="both", expand=True, padx=5, pady=5)
+
+        self.ext_lbl_image_path = ttk.Label(frame_left, text="Belum ada gambar stego yang dipilih", wraplength=400)
+        self.ext_lbl_image_path.pack(anchor="w", pady=2)
+
+        self.ext_btn_browse_img = ttk.Button(
+            frame_left, text="Pilih Gambar Stego (PNG)", command=self.ext_load_stego_image
+        )
+        self.ext_btn_browse_img.pack(anchor="w", pady=2)
+
+        # Sub-frame Kanan: Pilihan Ruang Warna
+        frame_right = ttk.Frame(frame_img)
+        frame_right.pack(side="right", padx=15, pady=5)
+
+        ttk.Label(frame_right, text="Pilihan Ruang Warna:").pack(anchor="w", pady=2)
+        self.ext_colorspace_var = tk.StringVar(value="RGB")
+        ttk.Radiobutton(frame_right, text="RGB (Langsung)", variable=self.ext_colorspace_var, value="RGB").pack(anchor="w", pady=1)
+        ttk.Radiobutton(frame_right, text="YCbCr (Konversi)", variable=self.ext_colorspace_var, value="YCbCr").pack(anchor="w", pady=1)
+
+        # Preview Gambar Stego
+        frame_preview = ttk.Frame(frame_ext)
+        frame_preview.pack(fill="x", padx=10, pady=5)
+
+        self.ext_lbl_img_stego = ttk.Label(
+            frame_preview, text="Gambar Stego", anchor="center",
+            borderwidth=2, relief="groove", width=45
+        )
+        self.ext_lbl_img_stego.pack(padx=5, fill="both", expand=True)
+
+        # Tombol Ekstrak
+        frame_btn_ext = ttk.Frame(frame_ext)
+        frame_btn_ext.pack(pady=8)
+
+        self.btn_ekstrak = ttk.Button(
+            frame_btn_ext, text="Ekstrak dari Gambar (DCT)", command=self.proses_ekstrak
+        )
+        self.btn_ekstrak.pack()
+
+        # Waktu Ekstraksi
+        frame_waktu_ext = ttk.Frame(frame_ext)
+        frame_waktu_ext.pack(fill="x", padx=10, pady=3)
+        ttk.Label(frame_waktu_ext, text="Waktu Ekstraksi  :", width=20, anchor="w").pack(side="left")
+        self.ext_lbl_waktu_ekstrak = ttk.Label(
+            frame_waktu_ext, text="-", foreground="#D35400", font=("Arial", 10, "bold")
+        )
+        self.ext_lbl_waktu_ekstrak.pack(side="left", padx=5)
+
+        # Hasil Ekstraksi (Ciphertext Hex)
+        frame_cipher = ttk.LabelFrame(frame_ext, text="Hasil Ekstraksi (Ciphertext Hex)")
+        frame_cipher.pack(fill="x", padx=10, pady=5)
+
+        self.ext_cipher_area = tk.Text(frame_cipher, height=4, wrap="word")
+        self.ext_cipher_area.pack(fill="x", padx=10, pady=5)
+
+        # ===== BAGIAN 2: DEKRIPSI (AES) =====
+        frame_dec = ttk.LabelFrame(ext_inner, text="2. Dekripsi (AES)")
+        frame_dec.pack(fill="x", padx=10, pady=5)
+
+        # Passphrase
+        frame_key = ttk.Frame(frame_dec)
+        frame_key.pack(fill="x", padx=10, pady=5)
+        ttk.Label(frame_key, text="Passphrase (16 Karakter):").pack(side="left")
+        self.ext_entry_key = ttk.Entry(frame_key, width=30)
+        self.ext_entry_key.pack(side="left", padx=10)
+
+        # Tombol Dekripsi
+        frame_btn_dec = ttk.Frame(frame_dec)
+        frame_btn_dec.pack(pady=8)
+
+        self.btn_dekripsi = ttk.Button(
+            frame_btn_dec, text="Dekripsi (AES)", command=self.proses_dekripsi
+        )
+        self.btn_dekripsi.pack()
+
+        # Evaluasi Waktu Dekripsi
+        frame_waktu_dec = ttk.LabelFrame(frame_dec, text="Evaluasi Kinerja Waktu")
+        frame_waktu_dec.pack(fill="x", padx=10, pady=5)
+
+        frame_waktu_dec_row = ttk.Frame(frame_waktu_dec)
+        frame_waktu_dec_row.pack(fill="x", padx=10, pady=3)
+        ttk.Label(frame_waktu_dec_row, text="Waktu Dekripsi  :", width=20, anchor="w").pack(side="left")
+        self.ext_lbl_waktu_dekripsi = ttk.Label(
+            frame_waktu_dec_row, text="-", foreground="blue", font=("Arial", 10, "bold")
+        )
+        self.ext_lbl_waktu_dekripsi.pack(side="left", padx=5)
+
+        frame_ukuran_dec = ttk.Frame(frame_waktu_dec)
+        frame_ukuran_dec.pack(fill="x", padx=10, pady=3)
+        ttk.Label(frame_ukuran_dec, text="Ukuran Data     :", width=20, anchor="w").pack(side="left")
+        self.ext_lbl_ukuran = ttk.Label(
+            frame_ukuran_dec, text="-", foreground="purple", font=("Arial", 10)
+        )
+        self.ext_lbl_ukuran.pack(side="left", padx=5)
+
+        # Hasil Dekripsi (Plaintext)
+        frame_plain = ttk.LabelFrame(frame_dec, text="Hasil Dekripsi (Plaintext)")
+        frame_plain.pack(fill="x", padx=10, pady=5)
+
+        self.ext_plain_area = tk.Text(frame_plain, height=8, wrap="word")
+        self.ext_plain_area.pack(fill="x", padx=10, pady=5)
+
+        # Inisialisasi
+        self.ext_image_path = None
+
+    # ==================== HANDLER TAB ENKRIPSI & PENYISIPAN ====================
+    def enc_load_text_file(self):
         filepath = filedialog.askopenfilename(
             filetypes=[("Text/Doc/PDF", "*.txt *.docx *.pdf"), ("Semua File", "*.*")]
         )
@@ -139,14 +456,30 @@ class SkripsiGUI(tk.Tk):
                     reader = PyPDF2.PdfReader(f)
                     for page in reader.pages:
                         content += page.extract_text() + "\n"
-            self.text_area.delete("1.0", tk.END)
-            self.text_area.insert(tk.END, content)
+            self.enc_text_area.delete("1.0", tk.END)
+            self.enc_text_area.insert(tk.END, content)
         except Exception as e:
             messagebox.showerror("Error", f"Gagal membaca file: {str(e)}")
 
+    def enc_load_cover_image(self):
+        filepath = filedialog.askopenfilename(filetypes=[("PNG Images", "*.png")])
+        if filepath:
+            self.enc_image_path = filepath
+            self.enc_lbl_image_path.config(text=filepath)
+            self.enc_lbl_img_input.config(image='', text="Gambar Input")
+            self.enc_lbl_img_output.config(image='', text="Gambar Output (Stego)")
+            self.enc_lbl_mse.config(text="-")
+            self.enc_lbl_psnr.config(text="-")
+            self.enc_lbl_channel.config(text="-")
+            self.enc_lbl_payload_msg.config(text="-")
+            self.enc_lbl_payload_cap.config(text="-")
+            self.enc_lbl_payload_util.config(text="-")
+            self.enc_lbl_waktu_sisip.config(text="-")
+            self.tampilkan_gambar(filepath, self.enc_lbl_img_input)
+
     def proses_enkripsi(self):
-        pesan = self.text_area.get("1.0", tk.END).strip()
-        kunci = self.entry_key.get()
+        pesan = self.enc_text_area.get("1.0", tk.END).strip()
+        kunci = self.enc_entry_key.get()
         if not pesan: return messagebox.showwarning("Peringatan", "Pesan tidak boleh kosong!")
         if len(kunci) == 0: return messagebox.showwarning("Peringatan", "Passphrase tidak boleh kosong!")
         try:
@@ -157,8 +490,12 @@ class SkripsiGUI(tk.Tk):
             end_time = time.perf_counter()
             waktu_enkripsi = end_time - start_time
 
-            self.text_area.delete("1.0", tk.END)
-            self.text_area.insert(tk.END, cipherhex)
+            # Simpan ciphertext untuk penyisipan
+            self.enc_ciphertext_hex = cipherhex
+
+            # Tampilkan ciphertext di area ciphertext
+            self.enc_cipher_area.delete("1.0", tk.END)
+            self.enc_cipher_area.insert(tk.END, cipherhex)
 
             # Hitung payload steganografi
             blok_aes = math.ceil(ukuran_plain / 16)
@@ -166,9 +503,9 @@ class SkripsiGUI(tk.Tk):
             total_payload = ukuran_cipher + 4  # +4 byte header 32-bit steganografi
 
             # Update tabel payload
-            for item in self.tbl_payload.get_children():
-                self.tbl_payload.delete(item)
-            self.tbl_payload.insert("", "end", values=(
+            for item in self.enc_tbl_payload.get_children():
+                self.enc_tbl_payload.delete(item)
+            self.enc_tbl_payload.insert("", "end", values=(
                 jumlah_karakter,
                 ukuran_plain,
                 blok_aes,
@@ -178,8 +515,8 @@ class SkripsiGUI(tk.Tk):
 
             # Tampilkan waktu enkripsi
             waktu_str = f"{waktu_enkripsi:.6f} detik"
-            self.lbl_waktu_enkripsi.config(text=waktu_str)
-            self.lbl_ukuran_data.config(
+            self.enc_lbl_waktu.config(text=waktu_str)
+            self.enc_lbl_ukuran.config(
                 text=f"Plaintext: {ukuran_plain} byte  |  Ciphertext: {ukuran_cipher} byte ({len(cipherhex)} hex chars)"
             )
 
@@ -195,315 +532,49 @@ class SkripsiGUI(tk.Tk):
         except Exception as e:
             messagebox.showerror("Error", f"Terjadi kesalahan enkripsi: {str(e)}")
 
-    def proses_dekripsi(self):
-        cipherhex = self.text_area.get("1.0", tk.END).strip()
-        kunci = self.entry_key.get()
-        if not cipherhex: return messagebox.showwarning("Peringatan", "Ciphertext tidak boleh kosong!")
-        try:
-            ukuran_cipher = len(cipherhex)
-            start_time = time.perf_counter()
-            plaintext = ksl.aes_dekripsi(cipherhex, kunci)
-            end_time = time.perf_counter()
-            waktu_dekripsi = end_time - start_time
-
-            self.text_area.delete("1.0", tk.END)
-            self.text_area.insert(tk.END, plaintext)
-
-            # Tampilkan waktu dekripsi
-            waktu_str = f"{waktu_dekripsi:.6f} detik"
-            self.lbl_waktu_dekripsi.config(text=waktu_str)
-            self.lbl_ukuran_data.config(
-                text=f"Ciphertext: {ukuran_cipher} hex chars ({ukuran_cipher//2} byte)  |  Plaintext: {len(plaintext.encode('utf-8'))} byte"
-            )
-
-            messagebox.showinfo(
-                "Sukses",
-                f"Teks berhasil didekripsi!\n\n"
-                f"Waktu Dekripsi: {waktu_str}\n"
-                f"Ukuran Ciphertext: {ukuran_cipher//2} byte\n"
-                f"Ukuran Plaintext: {len(plaintext.encode('utf-8'))} byte"
-            )
-        except Exception as e:
-            messagebox.showerror("Error", f"Terjadi kesalahan dekripsi: {str(e)}")
-
-    # ==================== TAB STEGANOGRAFI ====================
-    def setup_stego_tab(self):
-        # --- Scrollable wrapper ---
-        stego_canvas = tk.Canvas(self.tab_stego, highlightthickness=0)
-        stego_scrollbar = ttk.Scrollbar(self.tab_stego, orient="vertical", command=stego_canvas.yview)
-        stego_inner = ttk.Frame(stego_canvas)
-
-        stego_inner.bind(
-            "<Configure>",
-            lambda e: stego_canvas.configure(scrollregion=stego_canvas.bbox("all"))
-        )
-        stego_canvas.create_window((0, 0), window=stego_inner, anchor="nw")
-        stego_canvas.configure(yscrollcommand=stego_scrollbar.set)
-
-        stego_scrollbar.pack(side="right", fill="y")
-        stego_canvas.pack(side="left", fill="both", expand=True)
-
-        # Bind mousewheel untuk scroll
-        def _on_mousewheel(event):
-            stego_canvas.yview_scroll(int(-1*(event.delta/120)), "units")
-
-        stego_canvas.bind_all("<MouseWheel>", _on_mousewheel)
-
-        # Bind canvas width agar inner frame mengikuti lebar canvas
-        def _on_canvas_configure(event):
-            stego_canvas.itemconfig(stego_canvas.find_all()[0], width=event.width)
-
-        stego_canvas.bind("<Configure>", _on_canvas_configure)
-
-        # --- Konfigurasi Steganografi (Pilih Gambar & Ruang Warna) ---
-        frame_config = ttk.LabelFrame(stego_inner, text="Konfigurasi Steganografi")
-        frame_config.pack(fill="x", padx=10, pady=5)
-
-        # Sub-frame Kiri: Pilih Gambar
-        frame_left = ttk.Frame(frame_config)
-        frame_left.pack(side="left", fill="both", expand=True, padx=5, pady=5)
-
-        self.lbl_image_path = ttk.Label(frame_left, text="Belum ada gambar yang dipilih", wraplength=400)
-        self.lbl_image_path.pack(anchor="w", pady=2)
-
-        self.btn_browse_img = ttk.Button(
-            frame_left, text="Pilih Gambar (Cover / Stego)", command=self.load_image
-        )
-        self.btn_browse_img.pack(anchor="w", pady=2)
-
-        # Sub-frame Kanan: Pilihan Ruang Warna
-        frame_right = ttk.Frame(frame_config)
-        frame_right.pack(side="right", padx=15, pady=5)
-
-        ttk.Label(frame_right, text="Pilihan Ruang Warna:").pack(anchor="w", pady=2)
-        self.colorspace_var = tk.StringVar(value="RGB")
-        rb_rgb = ttk.Radiobutton(frame_right, text="RGB (Langsung)", variable=self.colorspace_var, value="RGB")
-        rb_rgb.pack(anchor="w", pady=1)
-        rb_ycbcr = ttk.Radiobutton(frame_right, text="YCbCr (Konversi)", variable=self.colorspace_var, value="YCbCr")
-        rb_ycbcr.pack(anchor="w", pady=1)
-
-        ttk.Separator(frame_right, orient="horizontal").pack(fill="x", pady=4)
-        self.hex_mode_var = tk.BooleanVar(value=True)
-        chk_hex = ttk.Checkbutton(
-            frame_right, text="Ciphertext (Hex → Biner)",
-            variable=self.hex_mode_var
-        )
-        chk_hex.pack(anchor="w", pady=1)
-        ttk.Label(
-            frame_right, text="Centang jika data adalah ciphertext hex",
-            foreground="gray", font=("Arial", 7)
-        ).pack(anchor="w")
-
-        frame_preview = ttk.Frame(stego_inner)
-        frame_preview.pack(fill="x", padx=10, pady=5)
-
-        self.lbl_img_input = ttk.Label(
-            frame_preview, text="Gambar Input", anchor="center",
-            borderwidth=2, relief="groove", width=45
-        )
-        self.lbl_img_input.pack(side="left", padx=5, fill="both", expand=True)
-
-        self.lbl_img_output = ttk.Label(
-            frame_preview, text="Gambar Output (Stego)", anchor="center",
-            borderwidth=2, relief="groove", width=45
-        )
-        self.lbl_img_output.pack(side="right", padx=5, fill="both", expand=True)
-
-        frame_data = ttk.LabelFrame(
-            stego_inner, text="Pesan Rahasia (Data untuk disisip / Hasil ekstrak)"
-        )
-        frame_data.pack(fill="x", padx=10, pady=5)
-
-        self.stego_text_area = tk.Text(frame_data, height=4, wrap="word")
-        self.stego_text_area.pack(fill="x", padx=10, pady=5)
-
-        # --- Tombol Aksi (di atas, agar selalu terlihat) ---
-        frame_action = ttk.Frame(stego_inner)
-        frame_action.pack(pady=8)
-
-        self.btn_sisipkan = ttk.Button(
-            frame_action, text="Sisipkan ke Gambar (DCT)", command=self.proses_sisipkan
-        )
-        self.btn_sisipkan.pack(side="left", padx=10)
-
-        self.btn_ekstrak = ttk.Button(
-            frame_action, text="Ekstrak dari Gambar (DCT)", command=self.proses_ekstrak
-        )
-        self.btn_ekstrak.pack(side="left", padx=10)
-
-        # --- Frame Payload Steganografi ---
-        frame_payload = ttk.LabelFrame(
-            stego_inner, text="Informasi Payload Steganografi"
-        )
-        frame_payload.pack(fill="x", padx=10, pady=5)
-
-        # Baris ukuran pesan
-        frame_msg_size = ttk.Frame(frame_payload)
-        frame_msg_size.pack(fill="x", padx=10, pady=3)
-        ttk.Label(frame_msg_size, text="Ukuran Pesan    :", width=20, anchor="w").pack(side="left")
-        self.lbl_payload_msg = ttk.Label(
-            frame_msg_size, text="-", foreground="blue", font=("Arial", 10, "bold")
-        )
-        self.lbl_payload_msg.pack(side="left", padx=5)
-
-        # Baris kapasitas gambar
-        frame_cap = ttk.Frame(frame_payload)
-        frame_cap.pack(fill="x", padx=10, pady=3)
-        ttk.Label(frame_cap, text="Kapasitas Gambar :", width=20, anchor="w").pack(side="left")
-        self.lbl_payload_cap = ttk.Label(
-            frame_cap, text="-", foreground="green", font=("Arial", 10, "bold")
-        )
-        self.lbl_payload_cap.pack(side="left", padx=5)
-
-        # Baris utilisasi
-        frame_util = ttk.Frame(frame_payload)
-        frame_util.pack(fill="x", padx=10, pady=3)
-        ttk.Label(frame_util, text="Utilisasi Payload :", width=20, anchor="w").pack(side="left")
-        self.lbl_payload_util = ttk.Label(
-            frame_util, text="-", foreground="purple", font=("Arial", 10, "bold")
-        )
-        self.lbl_payload_util.pack(side="left", padx=5)
-        ttk.Label(
-            frame_util,
-            text="(Persentase kapasitas yang digunakan)",
-            foreground="gray"
-        ).pack(side="left", padx=10)
-
-        # Baris waktu sisip
-        frame_waktu_sisip = ttk.Frame(frame_payload)
-        frame_waktu_sisip.pack(fill="x", padx=10, pady=3)
-        ttk.Label(frame_waktu_sisip, text="Waktu Penyisipan :", width=20, anchor="w").pack(side="left")
-        self.lbl_waktu_sisip = ttk.Label(
-            frame_waktu_sisip, text="-", foreground="#D35400", font=("Arial", 10, "bold")
-        )
-        self.lbl_waktu_sisip.pack(side="left", padx=5)
-
-        # Baris waktu ekstrak
-        frame_waktu_eks = ttk.Frame(frame_payload)
-        frame_waktu_eks.pack(fill="x", padx=10, pady=3)
-        ttk.Label(frame_waktu_eks, text="Waktu Ekstraksi  :", width=20, anchor="w").pack(side="left")
-        self.lbl_waktu_ekstrak = ttk.Label(
-            frame_waktu_eks, text="-", foreground="#D35400", font=("Arial", 10, "bold")
-        )
-        self.lbl_waktu_ekstrak.pack(side="left", padx=5)
-
-        # --- Frame Hasil MSE & PSNR (Steganografi) ---
-        frame_metrics = ttk.LabelFrame(
-            stego_inner, text="Hasil Pengukuran Kualitas Gambar (MSE & PSNR)"
-        )
-        frame_metrics.pack(fill="x", padx=10, pady=5)
-
-        # Baris label MSE
-        frame_mse_row = ttk.Frame(frame_metrics)
-        frame_mse_row.pack(fill="x", padx=10, pady=3)
-        ttk.Label(frame_mse_row, text="MSE  :", width=10, anchor="w").pack(side="left")
-        self.lbl_mse_value = ttk.Label(
-            frame_mse_row, text="-", foreground="blue", font=("Arial", 10, "bold")
-        )
-        self.lbl_mse_value.pack(side="left", padx=5)
-        ttk.Label(
-            frame_mse_row,
-            text="(Semakin kecil semakin baik. Ideal: mendekati 0)",
-            foreground="gray"
-        ).pack(side="left", padx=10)
-
-        # Baris label PSNR
-        frame_psnr_row = ttk.Frame(frame_metrics)
-        frame_psnr_row.pack(fill="x", padx=10, pady=3)
-        ttk.Label(frame_psnr_row, text="PSNR :", width=10, anchor="w").pack(side="left")
-        self.lbl_psnr_value = ttk.Label(
-            frame_psnr_row, text="-", foreground="green", font=("Arial", 10, "bold")
-        )
-        self.lbl_psnr_value.pack(side="left", padx=5)
-        ttk.Label(
-            frame_psnr_row,
-            text="(Semakin tinggi semakin baik. Ideal: > 40 dB)",
-            foreground="gray"
-        ).pack(side="left", padx=10)
-
-        # Baris label per-channel
-        frame_channel_row = ttk.Frame(frame_metrics)
-        frame_channel_row.pack(fill="x", padx=10, pady=3)
-        ttk.Label(frame_channel_row, text="Per-Channel:", width=12, anchor="w").pack(side="left")
-        self.lbl_channel_value = ttk.Label(frame_channel_row, text="-", foreground="purple")
-        self.lbl_channel_value.pack(side="left", padx=5)
-        # -----------------------------------------------
-
-        self.image_path = None
-
-    def tampilkan_gambar(self, filepath, label_widget):
-        try:
-            img_pil = Image.open(filepath)
-            img_pil.thumbnail((250, 250))
-            photo = ImageTk.PhotoImage(img_pil)
-            label_widget.config(image=photo, text="")
-            label_widget.image = photo
-        except Exception as e:
-            print(f"Gagal memuat gambar untuk preview: {str(e)}")
-
-    def load_image(self):
-        filepath = filedialog.askopenfilename(filetypes=[("PNG Images", "*.png")])
-        if filepath:
-            self.image_path = filepath
-            self.lbl_image_path.config(text=filepath)
-            self.lbl_img_input.config(image='', text="Gambar Input")
-            self.lbl_img_output.config(image='', text="Gambar Output (Stego)")
-            self.lbl_mse_value.config(text="-")
-            self.lbl_psnr_value.config(text="-")
-            self.lbl_channel_value.config(text="-")
-            self.lbl_payload_msg.config(text="-")
-            self.lbl_payload_cap.config(text="-")
-            self.lbl_payload_util.config(text="-")
-            self.lbl_waktu_sisip.config(text="-")
-            self.lbl_waktu_ekstrak.config(text="-")
-            self.tampilkan_gambar(filepath, self.lbl_img_input)
-
     def proses_sisipkan(self):
-        if not self.image_path:
+        if not self.enc_image_path:
             return messagebox.showwarning("Peringatan", "Pilih gambar Cover PNG terlebih dahulu!")
-        pesan = self.stego_text_area.get("1.0", tk.END).strip()
-        if not pesan:
-            return messagebox.showwarning("Peringatan", "Pesan rahasia tidak boleh kosong!")
 
-        base_path, _ = os.path.splitext(self.image_path)
-        mode = self.colorspace_var.get()
+        cipherhex = self.enc_cipher_area.get("1.0", tk.END).strip()
+        if not cipherhex:
+            return messagebox.showwarning("Peringatan", "Lakukan enkripsi terlebih dahulu! Ciphertext kosong.")
+
+        base_path, _ = os.path.splitext(self.enc_image_path)
+        mode = self.enc_colorspace_var.get()
         if mode == "YCbCr":
             stego_save_path = f"{base_path}Stego_YCbCr.png"
         else:
             stego_save_path = f"{base_path}Stego_RGB.png"
 
         try:
-            # Konversi hex → binary jika hex mode aktif
-            if self.hex_mode_var.get():
-                try:
-                    raw_bytes = bytes.fromhex(pesan)
-                    pesan_to_embed = raw_bytes.decode('latin-1')
-                except ValueError:
-                    return messagebox.showerror(
-                        "Error",
-                        "Data bukan hex string yang valid!\n"
-                        "Matikan opsi 'Ciphertext (Hex → Biner)' jika ingin menyisipkan teks biasa."
-                    )
-            else:
-                pesan_to_embed = pesan
+            # Konversi hex → binary (ciphertext selalu dalam format hex)
+            try:
+                raw_bytes = bytes.fromhex(cipherhex)
+                pesan_to_embed = raw_bytes.decode('latin-1')
+            except ValueError:
+                return messagebox.showerror(
+                    "Error",
+                    "Data ciphertext bukan hex string yang valid!"
+                )
 
             # Proses penyisipan berdasarkan pilihan ruang warna (dengan timing)
             start_time = time.perf_counter()
             if mode == "YCbCr":
-                payload_info = ksl.sisipkan_stego_ycbcr(self.image_path, stego_save_path, pesan_to_embed)
+                payload_info = ksl.sisipkan_stego_ycbcr(self.enc_image_path, stego_save_path, pesan_to_embed)
             else:
-                payload_info = ksl.sisipkan_stego(self.image_path, stego_save_path, pesan_to_embed)
+                payload_info = ksl.sisipkan_stego(self.enc_image_path, stego_save_path, pesan_to_embed)
             end_time = time.perf_counter()
             waktu_sisip = end_time - start_time
 
             # Tampilkan gambar stego
-            self.tampilkan_gambar(stego_save_path, self.lbl_img_output)
+            self.tampilkan_gambar(stego_save_path, self.enc_lbl_img_output)
 
             # Tampilkan informasi payload
-            self.lbl_payload_msg.config(
+            self.enc_lbl_payload_msg.config(
                 text=f"{payload_info['message_bytes']} byte ({payload_info['message_bits']} bit)"
             )
-            self.lbl_payload_cap.config(
+            self.enc_lbl_payload_cap.config(
                 text=f"{payload_info['capacity_bytes']} byte ({payload_info['capacity_bits']} bit)"
             )
 
@@ -514,24 +585,24 @@ class SkripsiGUI(tk.Tk):
                 util_color = "orange"
             else:
                 util_color = "green"
-            self.lbl_payload_util.config(
+            self.enc_lbl_payload_util.config(
                 text=f"{util_pct:.2f}%",
                 foreground=util_color
             )
 
             # Tampilkan waktu penyisipan
             waktu_sisip_str = f"{waktu_sisip:.6f} detik"
-            self.lbl_waktu_sisip.config(text=waktu_sisip_str)
+            self.enc_lbl_waktu_sisip.config(text=waktu_sisip_str)
 
             # Hitung MSE & PSNR
-            mse, psnr = ksl.hitung_mse_psnr(self.image_path, stego_save_path)
-            ch_results = ksl.hitung_mse_psnr_per_channel(self.image_path, stego_save_path)
+            mse, psnr = ksl.hitung_mse_psnr(self.enc_image_path, stego_save_path)
+            ch_results = ksl.hitung_mse_psnr_per_channel(self.enc_image_path, stego_save_path)
 
             # Tampilkan di label
-            self.lbl_mse_value.config(text=f"{mse:.6f}")
+            self.enc_lbl_mse.config(text=f"{mse:.6f}")
 
             if psnr == float('inf'):
-                self.lbl_psnr_value.config(text="∞ dB (Gambar identik)")
+                self.enc_lbl_psnr.config(text="∞ dB (Gambar identik)")
             else:
                 # Beri warna sesuai kualitas
                 if psnr >= 40:
@@ -540,7 +611,7 @@ class SkripsiGUI(tk.Tk):
                     color = "orange"
                 else:
                     color = "red"
-                self.lbl_psnr_value.config(text=f"{psnr:.4f} dB", foreground=color)
+                self.enc_lbl_psnr.config(text=f"{psnr:.4f} dB", foreground=color)
 
             # Tampilkan per-channel
             ch_text = (
@@ -548,7 +619,7 @@ class SkripsiGUI(tk.Tk):
                 f"G: MSE={ch_results['G']['mse']:.4f} PSNR={ch_results['G']['psnr']:.2f}dB  |  "
                 f"B: MSE={ch_results['B']['mse']:.4f} PSNR={ch_results['B']['psnr']:.2f}dB"
             )
-            self.lbl_channel_value.config(text=ch_text)
+            self.enc_lbl_channel.config(text=ch_text)
 
             messagebox.showinfo(
                 "Sukses",
@@ -567,40 +638,93 @@ class SkripsiGUI(tk.Tk):
         except Exception as e:
             messagebox.showerror("Error", f"Gagal menyisipkan: {str(e)}")
 
+    # ==================== HANDLER TAB EKSTRAKSI & DEKRIPSI ====================
+    def ext_load_stego_image(self):
+        filepath = filedialog.askopenfilename(filetypes=[("PNG Images", "*.png")])
+        if filepath:
+            self.ext_image_path = filepath
+            self.ext_lbl_image_path.config(text=filepath)
+            self.ext_lbl_waktu_ekstrak.config(text="-")
+            self.ext_cipher_area.delete("1.0", tk.END)
+            self.ext_plain_area.delete("1.0", tk.END)
+            self.ext_lbl_waktu_dekripsi.config(text="-")
+            self.ext_lbl_ukuran.config(text="-")
+            self.tampilkan_gambar(filepath, self.ext_lbl_img_stego)
+
     def proses_ekstrak(self):
-        if not self.image_path:
+        if not self.ext_image_path:
             return messagebox.showwarning("Peringatan", "Pilih gambar Stego PNG terlebih dahulu!")
-        mode = self.colorspace_var.get()
+        mode = self.ext_colorspace_var.get()
         try:
             start_time = time.perf_counter()
             if mode == "YCbCr":
-                hasil_ekstrak = ksl.ekstrak_stego_ycbcr(self.image_path)
+                hasil_ekstrak = ksl.ekstrak_stego_ycbcr(self.ext_image_path)
             else:
-                hasil_ekstrak = ksl.ekstrak_stego(self.image_path)
+                hasil_ekstrak = ksl.ekstrak_stego(self.ext_image_path)
             end_time = time.perf_counter()
             waktu_ekstrak = end_time - start_time
 
-            # Konversi binary → hex jika hex mode aktif
-            if self.hex_mode_var.get():
-                hasil_tampil = hasil_ekstrak.encode('latin-1').hex()
-            else:
-                hasil_tampil = hasil_ekstrak
+            # Konversi binary → hex (ciphertext selalu hex)
+            hasil_hex = hasil_ekstrak.encode('latin-1').hex()
 
-            self.stego_text_area.delete("1.0", tk.END)
-            self.stego_text_area.insert(tk.END, hasil_tampil)
+            self.ext_cipher_area.delete("1.0", tk.END)
+            self.ext_cipher_area.insert(tk.END, hasil_hex)
 
             # Tampilkan waktu ekstraksi
             waktu_str = f"{waktu_ekstrak:.6f} detik"
-            self.lbl_waktu_ekstrak.config(text=waktu_str)
+            self.ext_lbl_waktu_ekstrak.config(text=waktu_str)
 
             messagebox.showinfo(
                 "Sukses",
                 f"Pesan rahasia berhasil diekstrak menggunakan metode {mode}!\n\n"
                 f"Waktu Ekstraksi: {waktu_str}\n"
-                f"Ukuran Pesan: {len(hasil_tampil)} karakter"
+                f"Ukuran Ciphertext: {len(hasil_hex)} karakter (hex)"
             )
         except Exception as e:
             messagebox.showerror("Error", f"Gagal mengekstrak ({mode}): {str(e)}")
+
+    def proses_dekripsi(self):
+        cipherhex = self.ext_cipher_area.get("1.0", tk.END).strip()
+        kunci = self.ext_entry_key.get()
+        if not cipherhex: return messagebox.showwarning("Peringatan", "Lakukan ekstraksi terlebih dahulu! Ciphertext kosong.")
+        if len(kunci) == 0: return messagebox.showwarning("Peringatan", "Passphrase tidak boleh kosong!")
+        try:
+            ukuran_cipher = len(cipherhex)
+            start_time = time.perf_counter()
+            plaintext = ksl.aes_dekripsi(cipherhex, kunci)
+            end_time = time.perf_counter()
+            waktu_dekripsi = end_time - start_time
+
+            self.ext_plain_area.delete("1.0", tk.END)
+            self.ext_plain_area.insert(tk.END, plaintext)
+
+            # Tampilkan waktu dekripsi
+            waktu_str = f"{waktu_dekripsi:.6f} detik"
+            self.ext_lbl_waktu_dekripsi.config(text=waktu_str)
+            self.ext_lbl_ukuran.config(
+                text=f"Ciphertext: {ukuran_cipher} hex chars ({ukuran_cipher//2} byte)  |  Plaintext: {len(plaintext.encode('utf-8'))} byte"
+            )
+
+            messagebox.showinfo(
+                "Sukses",
+                f"Teks berhasil didekripsi!\n\n"
+                f"Waktu Dekripsi: {waktu_str}\n"
+                f"Ukuran Ciphertext: {ukuran_cipher//2} byte\n"
+                f"Ukuran Plaintext: {len(plaintext.encode('utf-8'))} byte"
+            )
+        except Exception as e:
+            messagebox.showerror("Error", f"Terjadi kesalahan dekripsi: {str(e)}")
+
+    # ==================== UTILITAS ====================
+    def tampilkan_gambar(self, filepath, label_widget):
+        try:
+            img_pil = Image.open(filepath)
+            img_pil.thumbnail((250, 250))
+            photo = ImageTk.PhotoImage(img_pil)
+            label_widget.config(image=photo, text="")
+            label_widget.image = photo
+        except Exception as e:
+            print(f"Gagal memuat gambar untuk preview: {str(e)}")
 
     # --- Metode CER Manual ---
     def cer_load_image(self):
